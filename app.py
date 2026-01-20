@@ -34,7 +34,7 @@ DATA_MAP = {
     }
 }
 
-st.set_page_config(page_title="琳琳的极简生活", layout="wide")
+st.set_page_config(page_title="MY极简生活", layout="wide")
 st.title("❤️MY极简生活仓库")
 init_db()
 
