@@ -3,21 +3,19 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 import hashlib
+from PIL import Image
+import io
 
-# --- 1. 密码加密小工具 (让密码在数据库里不显示明文) ---
+# --- 1. 安全与加密 ---
+INVITE_CODE = "pl"  # 👈 这是您的注册邀请码，可以修改
+
 def make_hashes(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
-def check_hashes(password, hashed_text):
-    if make_hashes(password) == hashed_text:
-        return hashed_text
-    return False
-
-# --- 2. 数据库初始化 (增加用户表) ---
+# --- 2. 数据库管理 ---
 def init_db():
     conn = sqlite3.connect('system_admin.db')
     c = conn.cursor()
-    # 用户表：存用户名和加密后的密码
     c.execute('CREATE TABLE IF NOT EXISTS userstable(username TEXT, password TEXT)')
     conn.commit()
     conn.close()
@@ -28,96 +26,138 @@ def init_user_db(username):
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS all_items 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  item_type TEXT, l1 TEXT, l2 TEXT, name TEXT, 
-                  rule TEXT, suggest TEXT, note TEXT, 
+                  item_type TEXT, name TEXT, note TEXT, 
                   image BLOB, created_date TEXT)''')
     conn.commit()
     conn.close()
     return db_name
 
-# --- 3. 用户管理功能 ---
-def add_userdata(username, password):
-    conn = sqlite3.connect('system_admin.db')
-    c = conn.cursor()
-    c.execute('INSERT INTO userstable(username, password) VALUES (?,?)', (username, password))
-    conn.commit()
-    conn.close()
-
-def login_user(username, password):
-    conn = sqlite3.connect('system_admin.db')
-    c = conn.cursor()
-    c.execute('SELECT * FROM userstable WHERE username =? AND password =?', (username, password))
-    data = c.fetchall()
-    conn.close()
-    return data
+# --- 3. 图片处理优化 (专业程序员必做) ---
+def compress_image(uploaded_file):
+    if uploaded_file is not None:
+        img = Image.open(uploaded_file)
+        # 如果图片很大，自动调整尺寸
+        img.thumbnail((800, 800)) 
+        buf = io.BytesIO()
+        # 转换为高压缩率的 JPEG
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        img.save(buf, format="JPEG", quality=70)
+        return buf.getvalue()
+    return None
 
 # --- 页面配置 ---
 st.set_page_config(page_title="❤️极简生活私密仓库", layout="wide")
 init_db()
 
-# --- 4. 侧边栏：登录/注册系统 ---
-st.sidebar.title("🔐 私人保险箱")
-username = st.sidebar.text_input("用户名")
-password = st.sidebar.text_input("密码", type='password')
-login_btn = st.sidebar.checkbox("进入仓库")
+# --- 4. 登录状态管理 ---
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+    st.session_state['user'] = ""
 
-if login_btn:
-    hashed_pswd = make_hashes(password)
-    result = login_user(username, hashed_pswd)
+# --- 5. 侧边栏逻辑 ---
+if not st.session_state['logged_in']:
+    st.sidebar.title("🔐 私人保险箱")
+    user = st.sidebar.text_input("用户名")
+    passwd = st.sidebar.text_input("密码", type='password')
     
-    if result:
-        st.sidebar.success(f"欢迎回来，{username}！")
-        # --- 以下是登录成功后的代码 ---
-        user_db = init_user_db(username)
-        st.title(f"✨ {username} 的私人极简仓库")
-        
-        # 录入部分
-        st.sidebar.divider()
-        st.sidebar.header("✨ 新增入库")
-        mode = st.sidebar.radio("选择类型", ["📦 现实物品", "💻 电子资料"])
-        item_name = st.sidebar.text_input("物品名称")
-        start_date = st.sidebar.date_input("开始日期", datetime.now())
-        uploaded_file = st.sidebar.file_uploader("上传照片", type=['jpg', 'png', 'jpeg'])
-        img_byte = uploaded_file.read() if uploaded_file else None
+    col1, col2 = st.sidebar.columns(2)
+    if col1.button("登录"):
+        conn = sqlite3.connect('system_admin.db')
+        c = conn.cursor()
+        c.execute('SELECT * FROM userstable WHERE username =? AND password =?', (user, make_hashes(passwd)))
+        if c.fetchall():
+            st.session_state['logged_in'] = True
+            st.session_state['user'] = user
+            st.rerun()
+        else:
+            st.sidebar.error("账号或密码错误")
 
-        if st.sidebar.button("确认存入"):
-            if item_name:
-                conn = sqlite3.connect(user_db)
+    with st.sidebar.expander("✨ 第一次使用？点击注册"):
+        new_user = st.text_input("想用的用户名")
+        new_passwd = st.text_input("想用的密码", type='password')
+        code = st.text_input("输入注册邀请码")
+        if st.button("立即创建仓库"):
+            if code == INVITE_CODE:
+                conn = sqlite3.connect('system_admin.db')
                 c = conn.cursor()
-                c.execute("INSERT INTO all_items (item_type, name, image, created_date) VALUES (?,?,?,?)",
-                          (mode, item_name, img_byte, start_date.strftime("%Y-%m-%d")))
+                c.execute('INSERT INTO userstable(username, password) VALUES (?,?)', (new_user, make_hashes(new_passwd)))
                 conn.commit()
                 conn.close()
-                st.sidebar.success("✅ 已存入私人空间")
-                st.rerun()
+                st.success("注册成功！请在上方登录")
+            else:
+                st.error("邀请码不对哦")
+else:
+    # 登录成功后，缩小并只显示退出按钮
+    st.sidebar.write(f"👤 当前用户: **{st.session_state['user']}**")
+    if st.sidebar.button("退出登录"):
+        st.session_state['logged_in'] = False
+        st.rerun()
+    
+    # --- 登录后的核心功能 ---
+    user_db = init_user_db(st.session_state['user'])
+    st.title(f"✨ {st.session_state['user']} 的私人极简仓库")
+    
+    # 分页标签
+    tab1, tab2 = st.tabs(["📋 仓库浏览", "📥 新增入库"])
+    
+    with tab2:
+        st.header("✨ 新增物品")
+        c1, c2 = st.columns(2)
+        with c1:
+            item_name = st.text_input("物品名称")
+            mode = st.selectbox("类型", ["📦 现实物品", "💻 电子资料"])
+        with c2:
+            start_date = st.date_input("开始日期", datetime.now())
+            uploaded_file = st.file_uploader("上传照片", type=['jpg', 'png', 'jpeg'])
+        
+        note = st.text_area("备注信息")
+        
+        if st.button("🚀 确认存入"):
+            if item_name:
+                img_byte = compress_image(uploaded_file)
+                conn = sqlite3.connect(user_db)
+                c = conn.cursor()
+                c.execute("INSERT INTO all_items (item_type, name, note, image, created_date) VALUES (?,?,?,?,?)",
+                          (mode, item_name, note, img_byte, start_date.strftime("%Y-%m-%d")))
+                conn.commit()
+                conn.close()
+                st.success("✅ 已存入！")
+            else:
+                st.error("名字不能为空")
 
-        # 展示部分
-        search_query = st.text_input("🔍 搜索我的物品", "")
+    with tab1:
+        # 搜索与导出
+        sc1, sc2 = st.columns([3, 1])
+        with sc1:
+            search = st.text_input("🔍 搜索物品", "")
+        
         conn = sqlite3.connect(user_db)
         df = pd.read_sql_query("SELECT * FROM all_items", conn)
         conn.close()
 
+        with sc2:
+            if not df.empty:
+                # 导出备份功能
+                csv = df.drop(columns=['image']).to_csv(index=False).encode('utf-8-sig')
+                st.download_button("💾 导出数据备份", csv, "my_storage_backup.csv", "text/csv")
+
         if not df.empty:
-            if search_query:
-                df = df[df['name'].str.contains(search_query, case=False)]
+            if search:
+                df = df[df['name'].str.contains(search, case=False)]
+            
             for index, row in df.iterrows():
-                with st.expander(f"{row['name']}"):
-                    if row['image']: st.image(row['image'], width=200)
-                    st.write(f"日期: {row['created_date']}")
-                    if st.button("🗑️ 删除", key=f"del_{row['id']}"):
-                        conn = sqlite3.connect(user_db)
-                        c = conn.cursor()
-                        c.execute("DELETE FROM all_items WHERE id=?", (row['id'],))
-                        conn.commit()
-                        conn.close()
-                        st.rerun()
-    else:
-        # 如果用户名不存在，提示可以创建
-        st.warning("用户名或密码错误。")
-        if st.button("以此名字和密码创建一个新仓库"):
-            add_userdata(username, make_hashes(password))
-            st.success("账号创建成功！请勾选‘进入仓库’登录。")
-else:
-    st.title("❤️ 欢迎来到极简生活仓库")
-    st.info("请在左侧输入用户名和密码。如果是第一次使用，请输入你想用的名字和密码，然后点击下方的‘创建新仓库’。")
-    
+                with st.expander(f"{row['name']} ({row['created_date']})"):
+                    col_img, col_txt = st.columns([1, 2])
+                    with col_img:
+                        if row['image']: st.image(row['image'])
+                    with col_txt:
+                        st.write(f"**类型:** {row['item_type']}")
+                        st.write(f"**备注:** {row['note']}")
+                        if st.button("🗑️ 删除记录", key=f"del_{row['id']}"):
+                            conn = sqlite3.connect(user_db)
+                            c = conn.cursor()
+                            c.execute("DELETE FROM all_items WHERE id=?", (row['id'],))
+                            conn.commit()
+                            conn.close()
+                            st.rerun()
