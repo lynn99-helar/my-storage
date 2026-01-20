@@ -37,7 +37,7 @@ DATA_MAP = {
 }
 
 st.set_page_config(page_title="琳琳的极简生活", layout="wide")
-st.title("✨ 琳琳的极简生活仓库")
+st.title("❤️MY极简生活仓库")
 init_db()
 
 # --- 侧边栏：录入功能 ---
