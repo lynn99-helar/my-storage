@@ -98,4 +98,63 @@ else:
         if not df.empty:
             csv = df.drop(columns=['image']).to_csv(index=False).encode('utf-8-sig')
             st.download_button("💾 导出文字备份", csv, "backup.csv")
-            if q: df = df[df['name'].str.contains(
+            if q: df = df[df['name'].str.contains(q, case=False)]
+            for i, r in df.iterrows():
+                with st.expander(f"[{r['l2']}] {r['name']} | 📅 {r['created_date']}"):
+                    ci, ct = st.columns([1, 2])
+                    if r['image']: ci.image(r['image'])
+                    ct.write(f"备注: {r['note']}")
+                    if ct.button("🗑️ 删除", key=f"d_{r['id']}"):
+                        st.error("确定吗？")
+                        if st.button("🔥 确认永久删除", key=f"fd_{r['id']}"):
+                            conn.execute("DELETE FROM all_items WHERE id=?", (r['id'],)); conn.commit(); st.rerun()
+        conn.close()
+
+    with tabs[1]:
+        conn = sqlite3.connect(user_db); cat_df = pd.read_sql_query("SELECT * FROM categories", conn); conn.close()
+        c1, c2 = st.columns(2)
+        m = c1.selectbox("大类", ["📦 现实物品", "💻 电子资料"])
+        subs = cat_df[cat_df['parent_name'] == m]['child_name'].tolist()
+        l2 = c1.selectbox("子类", subs if subs else ["无"])
+        name = c1.text_input("名称")
+        dt = c2.date_input("日期", datetime.now())
+        pic = c2.file_uploader("照片", type=['jpg','png','jpeg'])
+        note = st.text_area("备注")
+        if st.button("🚀 准备入库"):
+            st.warning(f"确定入库 {name} 吗？")
+            if st.button("✅ 确定"):
+                img = compress_image(pic)
+                conn = sqlite3.connect(user_db)
+                conn.execute("INSERT INTO all_items (item_type,l1,l2,name,note,image,created_date) VALUES (?,?,?,?,?,?,?)",(m,m,l2,name,note,img,dt.strftime("%Y-%m-%d")))
+                conn.commit(); conn.close(); st.success("入库成功！"); st.balloons()
+
+    with tabs[2]:
+        conn = sqlite3.connect(user_db); c1, c2 = st.columns(2)
+        new_c = c1.text_input("新分类名称")
+        if c1.button("确认增加分类"):
+            conn.execute("INSERT INTO categories (parent_name, child_name) VALUES (?,?)", ("📦 现实物品", new_c))
+            conn.commit(); st.rerun()
+        cat_df = pd.read_sql_query("SELECT * FROM categories", conn)
+        if not cat_df.empty:
+            del_c = c2.selectbox("要删的分类", cat_df['child_name'].tolist())
+            if c2.button("确认删除"):
+                conn.execute("DELETE FROM categories WHERE child_name=?", (del_c,)); conn.commit(); st.rerun()
+        conn.close()
+
+    if st.session_state['user'] == ADMIN_USER:
+        with tabs[3]:
+            st.header("🛠️ 楼管后台")
+            conn = sqlite3.connect('system_admin.db')
+            u_df = pd.read_sql_query("SELECT username FROM userstable", conn)
+            st.metric("总注册户数", len(u_df))
+            for u in u_df['username']:
+                if u != ADMIN_USER:
+                    col_u, col_d = st.columns([3, 1])
+                    col_u.write(f"👤 用户: **{u}**")
+                    if col_d.button(f"注销", key=f"m_{u}"):
+                        conn.execute("DELETE FROM userstable WHERE username=?", (u,))
+                        conn.commit(); conn.close()
+                        try: os.remove(f"{u}_storage.db")
+                        except: pass
+                        st.rerun()
+            conn.close()
