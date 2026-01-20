@@ -40,7 +40,7 @@ DATA_MAP = {
 }
 
 st.set_page_config(page_title="极简仓库专业版", layout="wide")
-st.title("👵 老奶的极简全能仓库")
+st.title("MY极简全能仓库")
 init_db()
 
 # --- 侧边栏：功能录入 ---
