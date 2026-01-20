@@ -7,7 +7,7 @@ from PIL import Image
 import io
 
 # --- 1. 安全配置 ---
-INVITE_CODE = "666666"
+INVITE_CODE = "pl"
 
 def make_hashes(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
