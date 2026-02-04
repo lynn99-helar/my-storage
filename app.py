@@ -6,7 +6,12 @@ import hashlib
 from PIL import Image
 import io
 import os
-
+# 临时补丁：把 '你的用户名' 的密码重置为 '123456'
+conn = sqlite3.connect('system_admin.db')
+conn.execute("UPDATE userstable SET password=? WHERE username=?", 
+             (make_hashes("123456"), "你的用户名"))
+conn.commit()
+conn.close()
 # --- 1. 配置与安全 ---
 INVITE_CODE = "666666"
 ADMIN_USER = "lynn"
