@@ -6,14 +6,9 @@ import hashlib
 from PIL import Image
 import io
 import os
-# 临时补丁：把 '你的用户名' 的密码重置为 '123456'
-conn = sqlite3.connect('system_admin.db')
-conn.execute("UPDATE userstable SET password=? WHERE username=?", 
-             (make_hashes("123456"), "你的用户名"))
-conn.commit()
-conn.close()
-# --- 1. 配置与安全 ---
-INVITE_CODE = "666666"
+
+# --- 1. 核心配置 ---
+INVITE_CODE = "666666"  # 既是注册码，也是重置密码的“密保”
 ADMIN_USER = "lynn"
 
 def make_hashes(password):
@@ -33,14 +28,14 @@ def init_user_db(username):
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS all_items 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  item_type TEXT, l1 TEXT, l2 TEXT, name TEXT, 
+                  item_type TEXT, l2 TEXT, name TEXT, 
                   note TEXT, image BLOB, created_date TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS categories 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   parent_name TEXT, child_name TEXT)''')
     c.execute("SELECT count(*) FROM categories")
     if c.fetchone()[0] == 0:
-        defaults = [("📦 现实物品", "常用工具"), ("💻 电子资料", "重要文档")]
+        defaults = [("📦 现实物品", "常用"), ("💻 电子资料", "存档")]
         c.executemany("INSERT INTO categories (parent_name, child_name) VALUES (?,?)", defaults)
     conn.commit()
     conn.close()
@@ -56,88 +51,123 @@ def compress_image(uploaded_file):
         return buf.getvalue()
     return None
 
-# --- 3. 界面逻辑 ---
-st.set_page_config(page_title="❤️极简私人仓库", layout="wide")
+# --- 3. 页面样式 ---
+st.set_page_config(page_title="Minimalist Storage", layout="wide")
+st.markdown("""
+    <style>
+    .main { background-color: #f9f9f9; }
+    .stButton>button { border-radius: 5px; height: 3em; width: 100%; }
+    .stExpander { border: none !important; box-shadow: 0px 2px 5px rgba(0,0,0,0.05); }
+    </style>
+    """, unsafe_allow_html=True)
+
 init_db()
 
-if 'logged_in' not in st.session_state:
-    st.session_state['logged_in'] = False
-    st.session_state['user'] = ""
+if 'page' not in st.session_state: st.session_state['page'] = 'login'
+if 'user' not in st.session_state: st.session_state['user'] = ""
 
-if not st.session_state['logged_in']:
-    welcome_img = "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?q=80&w=1000&auto=format&fit=crop"
-    c1, c2 = st.columns([1.5, 1])
-    with c1: st.image(welcome_img, use_container_width=True); st.title("❤️ 欢迎来到您的私人保险箱")
-    with st.sidebar:
-        st.title("🔐 登录验证")
-        u = st.text_input("用户名", key="l_u")
-        p = st.text_input("密码", type='password', key="l_p")
-        if st.button("进入仓库"):
-            conn = sqlite3.connect('system_admin.db')
-            c = conn.cursor()
+# --- 4. 路由逻辑 ---
+def go_to(page_name):
+    st.session_state['page'] = page_name
+    st.rerun()
+
+# --- 5. 登录/注册/重置 界面 ---
+if st.session_state['page'] == 'login':
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
+        st.image("https://images.unsplash.com/photo-1494438639946-1ebd1d20bf85?q=80&w=1000&auto=format&fit=crop", use_container_width=True)
+        st.title("🪑 极简生活仓库")
+        u = st.text_input("用户名")
+        p = st.text_input("密码", type='password')
+        if st.button("进入空间"):
+            conn = sqlite3.connect('system_admin.db'); c = conn.cursor()
             c.execute('SELECT * FROM userstable WHERE username=? AND password=?', (u, make_hashes(p)))
             if c.fetchone():
-                st.session_state['logged_in'], st.session_state['user'] = True, u
-                st.rerun()
+                st.session_state['user'] = u
+                go_to('main')
             else: st.error("用户名或密码错误")
-        with st.expander("✨ 注册新账号"):
-            nu, np, code = st.text_input("新用户名"), st.text_input("新密码", type="password"), st.text_input("邀请码")
-            if st.button("完成注册"):
-                if code == INVITE_CODE and nu and np:
-                    conn = sqlite3.connect('system_admin.db'); c = conn.cursor()
-                    c.execute('INSERT INTO userstable(username, password) VALUES (?,?)', (nu, make_hashes(np)))
-                    conn.commit(); conn.close(); st.success("注册成功！请登录")
-                else: st.error("信息不全或邀请码错误")
-else:
-    st.sidebar.write(f"👤 主人: **{st.session_state['user']}**")
-    if st.sidebar.button("安全退出"): st.session_state['logged_in'] = False; st.rerun()
+        
+        col_btn1, col_btn2 = st.columns(2)
+        if col_btn1.button("✨ 开启新空间"): go_to('signup')
+        if col_btn2.button("🔑 找回钥匙"): go_to('reset')
+
+elif st.session_state['page'] == 'signup':
+    st.title("✨ 注册新空间")
+    nu = st.text_input("设定用户名")
+    np = st.text_input("设定密码", type='password')
+    nc = st.text_input("输入邀请码")
+    if st.button("确认注册"):
+        if nc == INVITE_CODE and nu and np:
+            conn = sqlite3.connect('system_admin.db'); c = conn.cursor()
+            c.execute('INSERT INTO userstable(username, password) VALUES (?,?)', (nu, make_hashes(np)))
+            conn.commit(); conn.close()
+            st.success("注册成功！")
+            go_to('login')
+    if st.button("返回"): go_to('login')
+
+elif st.session_state['page'] == 'reset':
+    st.title("🔑 重置密码")
+    st.info("验证邀请码后即可设置新密码")
+    ru = st.text_input("要重置的用户名")
+    rc = st.text_input("邀请码验证")
+    rp = st.text_input("设定新密码", type='password')
+    if st.button("立即重置"):
+        if rc == INVITE_CODE and ru and rp:
+            conn = sqlite3.connect('system_admin.db'); c = conn.cursor()
+            c.execute('SELECT * FROM userstable WHERE username=?', (ru,))
+            if c.fetchone():
+                c.execute("UPDATE userstable SET password=? WHERE username=?", (make_hashes(rp), ru))
+                conn.commit(); conn.close()
+                st.success("密码重置成功！")
+                go_to('login')
+            else: st.error("找不到该用户")
+    if st.button("返回"): go_to('login')
+
+elif st.session_state['page'] == 'main':
+    # --- 6. 登录后的主界面 ---
+    st.sidebar.subheader(f"👤 {st.session_state['user']}")
+    if st.sidebar.button("退出登录"): st.session_state['user'] = ""; go_to('login')
     
     user_db = init_user_db(st.session_state['user'])
-    t_list = ["📋 浏览仓库", "📥 存入宝贝", "📁 整理分类"]
-    if st.session_state['user'] == ADMIN_USER: t_list.append("🛠️ 楼管后台")
+    t_list = ["📋 浏览", "📥 入库", "📁 分类"]
+    if st.session_state['user'] == ADMIN_USER: t_list.append("🛠️ 后台")
     tabs = st.tabs(t_list)
 
-    with tabs[0]:
+    with tabs[0]: # 浏览
         q = st.text_input("🔍 搜索物品...")
         conn = sqlite3.connect(user_db); df = pd.read_sql_query("SELECT * FROM all_items", conn)
         if not df.empty:
-            csv = df.drop(columns=['image']).to_csv(index=False).encode('utf-8-sig')
-            st.download_button("💾 导出文字备份", csv, "backup.csv")
             if q: df = df[df['name'].str.contains(q, case=False)]
             for i, r in df.iterrows():
-                with st.expander(f"[{r['l2']}] {r['name']} | 📅 {r['created_date']}"):
+                with st.expander(f"{r['name']} / {r['l2']}"):
                     ci, ct = st.columns([1, 2])
                     if r['image']: ci.image(r['image'])
-                    ct.write(f"备注: {r['note']}")
+                    ct.write(f"📅 日期: {r['created_date']}\n\n📝 备注: {r['note']}")
                     if ct.button("🗑️ 删除", key=f"d_{r['id']}"):
-                        st.error("确定吗？")
-                        if st.button("🔥 确认永久删除", key=f"fd_{r['id']}"):
-                            conn.execute("DELETE FROM all_items WHERE id=?", (r['id'],)); conn.commit(); st.rerun()
+                        conn.execute("DELETE FROM all_items WHERE id=?", (r['id'],)); conn.commit(); st.rerun()
         conn.close()
 
-    with tabs[1]:
+    with tabs[1]: # 入库
         conn = sqlite3.connect(user_db); cat_df = pd.read_sql_query("SELECT * FROM categories", conn); conn.close()
-        c1, c2 = st.columns(2)
-        m = c1.selectbox("大类", ["📦 现实物品", "💻 电子资料"])
+        m = st.selectbox("大类", ["📦 现实物品", "💻 电子资料"])
         subs = cat_df[cat_df['parent_name'] == m]['child_name'].tolist()
-        l2 = c1.selectbox("子类", subs if subs else ["无"])
-        name = c1.text_input("名称")
-        dt = c2.date_input("日期", datetime.now())
-        pic = c2.file_uploader("照片", type=['jpg','png','jpeg'])
+        l2 = st.selectbox("子类", subs if subs else ["无"])
+        name = st.text_input("物品名称")
+        pic = st.file_uploader("上传照片", type=['jpg','png','jpeg'])
         note = st.text_area("备注")
-        if st.button("🚀 准备入库"):
-            st.warning(f"确定入库 {name} 吗？")
-            if st.button("✅ 确定"):
-                img = compress_image(pic)
-                conn = sqlite3.connect(user_db)
-                conn.execute("INSERT INTO all_items (item_type,l1,l2,name,note,image,created_date) VALUES (?,?,?,?,?,?,?)",(m,m,l2,name,note,img,dt.strftime("%Y-%m-%d")))
-                conn.commit(); conn.close(); st.success("入库成功！"); st.balloons()
+        if st.button("🚀 确认入库"):
+            img = compress_image(pic)
+            conn = sqlite3.connect(user_db)
+            conn.execute("INSERT INTO all_items (item_type,l2,name,note,image,created_date) VALUES (?,?,?,?,?,?)",
+                      (m,l2,name,note,img,datetime.now().strftime("%Y-%m-%d")))
+            conn.commit(); conn.close(); st.success("入库成功！"); st.balloons()
 
-    with tabs[2]:
+    with tabs[2]: # 分类
         conn = sqlite3.connect(user_db); c1, c2 = st.columns(2)
+        p_sel = c1.selectbox("所属大类", ["📦 现实物品", "💻 电子资料"])
         new_c = c1.text_input("新分类名称")
-        if c1.button("确认增加分类"):
-            conn.execute("INSERT INTO categories (parent_name, child_name) VALUES (?,?)", ("📦 现实物品", new_c))
+        if c1.button("增加分类"):
+            conn.execute("INSERT INTO categories (parent_name, child_name) VALUES (?,?)", (p_sel, new_c))
             conn.commit(); st.rerun()
         cat_df = pd.read_sql_query("SELECT * FROM categories", conn)
         if not cat_df.empty:
@@ -147,18 +177,15 @@ else:
         conn.close()
 
     if st.session_state['user'] == ADMIN_USER:
-        with tabs[3]:
-            st.header("🛠️ 楼管后台")
-            conn = sqlite3.connect('system_admin.db')
-            u_df = pd.read_sql_query("SELECT username FROM userstable", conn)
+        with tabs[3]: # 后台
+            conn = sqlite3.connect('system_admin.db'); u_df = pd.read_sql_query("SELECT username FROM userstable", conn)
             st.metric("总注册户数", len(u_df))
             for u in u_df['username']:
                 if u != ADMIN_USER:
-                    col_u, col_d = st.columns([3, 1])
-                    col_u.write(f"👤 用户: **{u}**")
-                    if col_d.button(f"注销", key=f"m_{u}"):
-                        conn.execute("DELETE FROM userstable WHERE username=?", (u,))
-                        conn.commit(); conn.close()
+                    c_u, c_d = st.columns([3, 1])
+                    c_u.write(f"👤 用户: {u}")
+                    if c_d.button("注销", key=f"m_{u}"):
+                        conn.execute("DELETE FROM userstable WHERE username=?", (u,)); conn.commit()
                         try: os.remove(f"{u}_storage.db")
                         except: pass
                         st.rerun()
