@@ -34,7 +34,7 @@ def init_user_db(username):
                   parent_name TEXT, child_name TEXT)''')
     
     c.execute("SELECT count(*) FROM categories")
-    if c.fetchone()[0] == 0:
+    if True:
         rich_defaults = [
             ("📦 现实物品", "👕 穿戴配饰"), ("📦 现实物品", "💻 数码电子"), 
             ("📦 现实物品", "🏠 家居日用"), ("📦 现实物品", "💄 美妆护肤"),
